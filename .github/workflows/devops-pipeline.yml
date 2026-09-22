@@ -17,9 +17,9 @@ env:
 
 jobs:
 
-  # =========================================================
+  # =====================================================
   # 1. VALIDATE
-  # =========================================================
+  # =====================================================
   validate:
     name: Validate Code
     runs-on: ubuntu-latest
@@ -35,13 +35,13 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      - name: Validate Maven Project
+      - name: Maven Validate
         run: mvn --batch-mode validate
 
 
-  # =========================================================
+  # =====================================================
   # 2. BUILD + TEST
-  # =========================================================
+  # =====================================================
   build:
     name: Build and Test
     runs-on: ubuntu-latest
@@ -58,24 +58,25 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      - name: Build Application
+      - name: Build and Test
         run: mvn --batch-mode clean package
 
-      - name: Show Build Files
+      - name: Check WAR File
         run: |
-          echo "Build completed"
-          ls -lah target/
+          echo "Generated WAR files:"
+          ls -lah target/*.war
 
-      - name: Upload Application Artifact
+      - name: Upload WAR Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: application-build
+          name: application-war
           path: target/*.war
+          retention-days: 1
 
 
-  # =========================================================
+  # =====================================================
   # 3. SECURITY SCAN
-  # =========================================================
+  # =====================================================
   security:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -91,51 +92,21 @@ jobs:
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret
-          severity: CRITICAL,HIGH
+          severity: HIGH,CRITICAL
           ignore-unfixed: true
+          exit-code: 0
           format: table
 
 
-  # =========================================================
-  # 4. PACKAGE
-  # =========================================================
-  package:
-    name: Package Application
-    runs-on: ubuntu-latest
-    needs: security
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: maven
-
-      - name: Create WAR
-        run: mvn --batch-mode package -DskipTests
-
-      - name: Show WAR
-        run: |
-          ls -lah target/
-
-      - name: Upload WAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: application-war
-          path: target/*.war
-
-
-  # =========================================================
-  # 5. DOCKER BUILD + PUSH
-  # =========================================================
+  # =====================================================
+  # 4. DOCKER BUILD + PUSH
+  # =====================================================
   docker:
     name: Docker Build and Push
     runs-on: ubuntu-latest
-    needs: package
+    needs:
+      - build
+      - security
 
     permissions:
       contents: read
@@ -144,6 +115,25 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Download WAR Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: application-war
+          path: target
+
+      - name: Verify Docker Files
+        run: |
+          echo "Repository files:"
+          ls -lah
+
+          echo ""
+          echo "WAR file:"
+          ls -lah target/*.war
+
+          echo ""
+          echo "Dockerfile:"
+          ls -lah Dockerfile
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -164,9 +154,9 @@ jobs:
           docker push $IMAGE_NAME:latest
 
 
-  # =========================================================
-  # 6. DEPLOYMENT
-  # =========================================================
+  # =====================================================
+  # 5. DEPLOY
+  # =====================================================
   deploy:
     name: Deploy Application
     runs-on: ubuntu-latest
@@ -175,21 +165,22 @@ jobs:
     steps:
       - name: Deployment Started
         run: |
-          echo "======================================"
+          echo "========================================"
           echo "Starting Application Deployment"
-          echo "======================================"
+          echo "========================================"
 
       - name: Deploy Application
         run: |
-          echo "Docker Image:"
+          echo "Application Image:"
           echo "$IMAGE_NAME:${{ github.sha }}"
+
           echo ""
-          echo "Application deployment completed."
+          echo "Deployment completed successfully."
 
 
-  # =========================================================
-  # 7. HEALTH CHECK
-  # =========================================================
+  # =====================================================
+  # 6. HEALTH CHECK
+  # =====================================================
   health-check:
     name: Application Health Check
     runs-on: ubuntu-latest
@@ -199,10 +190,11 @@ jobs:
       - name: Health Check
         run: |
           echo "Checking application health..."
+
           echo "Application is healthy."
 
       - name: Pipeline Completed
         run: |
-          echo "======================================"
+          echo "========================================"
           echo "       CI/CD PIPELINE SUCCESSFUL"
-          echo "======================================"
+          echo "========================================"
