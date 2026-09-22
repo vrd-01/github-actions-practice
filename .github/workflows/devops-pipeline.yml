@@ -43,66 +43,57 @@ jobs:
   # =====================================================
   # 2. BUILD + TEST
   # =====================================================
-  build:
-    name: Build and Test
-    runs-on: ubuntu-latest
-    needs: validate
+ build:
+  name: Build and Test
+  runs-on: ubuntu-latest
+  needs: validate
 
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+  steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: maven
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: ${{ env.JAVA_VERSION }}
+        cache: maven
 
-      - name: Build and Test
-        run: |
-          mvn --batch-mode clean package
+    - name: Build and Test
+      run: |
+        mvn --batch-mode clean package
 
-      - name: Find Generated Files
-        run: |
-          echo "===== TARGET DIRECTORY ====="
-          if [ -d target ]; then
-            find target -maxdepth 2 -type f -print
-          else
-            echo "ERROR: target directory was not created."
-            exit 1
-          fi
+    - name: Verify JAR
+      run: |
+        echo "===== GENERATED FILES ====="
+        find target -maxdepth 2 -type f -print
+        echo ""
+        echo "===== JAR FILE ====="
+        ls -lh target/*.jar
 
-      - name: Prepare Application WAR
-        run: |
-          WAR_FILE=$(find target -maxdepth 1 -type f -name "*.war" | head -n 1)
+    - name: Prepare Application JAR
+      run: |
+        JAR_FILE=$(find target -maxdepth 1 -type f -name "*.jar" | head -n 1)
 
-          if [ -z "$WAR_FILE" ]; then
-            echo "ERROR: No WAR file was generated."
-            echo ""
-            echo "Maven generated these files:"
-            find target -maxdepth 2 -type f -print
-            echo ""
-            echo "Please check the Maven project packaging in pom.xml."
-            exit 1
-          fi
+        if [ -z "$JAR_FILE" ]; then
+          echo "ERROR: No JAR file was generated."
+          exit 1
+        fi
 
-          echo "Found WAR:"
-          echo "$WAR_FILE"
+        echo "Found JAR:"
+        echo "$JAR_FILE"
 
-          cp "$WAR_FILE" target/application.war
+        cp "$JAR_FILE" target/application.jar
 
-          echo ""
-          echo "Prepared application:"
-          ls -lh target/application.war
+        echo "Prepared application:"
+        ls -lh target/application.jar
 
-      - name: Upload Application WAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: application-war
-          path: target/application.war
-          retention-days: 1
-
+    - name: Upload Application JAR
+      uses: actions/upload-artifact@v4
+      with:
+        name: application-jar
+        path: target/application.jar
+        retention-days: 1
 
   # =====================================================
   # 3. SECURITY SCAN
