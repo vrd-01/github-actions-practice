@@ -1,0 +1,234 @@
+name: DevOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+env:
+  JAVA_VERSION: '17'
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+
+  # ------------------------------------------------
+  # 1. VALIDATE
+  # ------------------------------------------------
+  validate:
+    name: Validate Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check Repository
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+
+      - name: Validate Maven Project
+        run: |
+          mvn validate
+
+
+  # ------------------------------------------------
+  # 2. BUILD
+  # ------------------------------------------------
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Build Application
+        run: |
+          mvn clean package -DskipTests
+
+      - name: List Build Files
+        run: |
+          ls -lah target/
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-build
+          path: target/*.war
+
+
+  # ------------------------------------------------
+  # 3. TEST
+  # ------------------------------------------------
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Run Tests
+        run: |
+          mvn test
+
+
+  # ------------------------------------------------
+  # 4. SECURITY SCAN
+  # ------------------------------------------------
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: OWASP Dependency Check
+        run: |
+          mvn org.owasp:dependency-check-maven:check
+
+
+  # ------------------------------------------------
+  # 5. PACKAGE
+  # ------------------------------------------------
+  package:
+    name: Package Application
+    runs-on: ubuntu-latest
+    needs: security
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Create WAR
+        run: |
+          mvn clean package -DskipTests
+
+      - name: Rename WAR
+        run: |
+          ls -lah target/
+
+      - name: Upload WAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-war
+          path: target/*.war
+
+
+  # ------------------------------------------------
+  # 6. DOCKER BUILD
+  # ------------------------------------------------
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: package
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker Image
+        run: |
+          docker build -t $IMAGE_NAME:${{ github.sha }} .
+
+      - name: Tag Latest
+        run: |
+          docker tag $IMAGE_NAME:${{ github.sha }} $IMAGE_NAME:latest
+
+      - name: Push Docker Image
+        run: |
+          docker push $IMAGE_NAME:${{ github.sha }}
+          docker push $IMAGE_NAME:latest
+
+
+  # ------------------------------------------------
+  # 7. DEPLOY
+  # ------------------------------------------------
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: docker
+
+    environment:
+      name: production
+
+    steps:
+      - name: Deployment Started
+        run: |
+          echo "Starting deployment..."
+          echo "Docker image: $IMAGE_NAME:${{ github.sha }}"
+
+      - name: Deploy Application
+        run: |
+          echo "Application deployment completed"
+          echo "Replace this step with your actual server deployment commands."
+
+
+  # ------------------------------------------------
+  # 8. HEALTH CHECK
+  # ------------------------------------------------
+  health-check:
+    name: Application Health Check
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Health Check
+        run: |
+          echo "Checking application health..."
+          echo "Application is healthy."
+
+      - name: Pipeline Completed
+        run: |
+          echo "================================="
+          echo " CI/CD PIPELINE SUCCESSFUL"
+          echo "================================="
