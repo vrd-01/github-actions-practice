@@ -4,9 +4,12 @@ on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
+
+  workflow_dispatch:
 
 env:
   JAVA_VERSION: '17'
@@ -14,9 +17,9 @@ env:
 
 jobs:
 
-  # ==========================================
+  # =========================================================
   # 1. VALIDATE
-  # ==========================================
+  # =========================================================
   validate:
     name: Validate Code
     runs-on: ubuntu-latest
@@ -32,22 +35,15 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      - name: Check Repository
-        run: |
-          echo "Repository: ${{ github.repository }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
-
       - name: Validate Maven Project
-        run: |
-          mvn validate
+        run: mvn --batch-mode validate
 
 
-  # ==========================================
-  # 2. BUILD
-  # ==========================================
+  # =========================================================
+  # 2. BUILD + TEST
+  # =========================================================
   build:
-    name: Build Application
+    name: Build and Test
     runs-on: ubuntu-latest
     needs: validate
 
@@ -63,25 +59,25 @@ jobs:
           cache: maven
 
       - name: Build Application
-        run: |
-          mvn clean package -DskipTests
+        run: mvn --batch-mode clean package
 
-      - name: List Build Files
+      - name: Show Build Files
         run: |
+          echo "Build completed"
           ls -lah target/
 
-      - name: Upload Build Artifact
+      - name: Upload Application Artifact
         uses: actions/upload-artifact@v4
         with:
           name: application-build
           path: target/*.war
 
 
-  # ==========================================
-  # 3. TEST
-  # ==========================================
-  test:
-    name: Run Unit Tests
+  # =========================================================
+  # 3. SECURITY SCAN
+  # =========================================================
+  security:
+    name: Security Scan
     runs-on: ubuntu-latest
     needs: build
 
@@ -89,43 +85,20 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: maven
-
-      - name: Run Unit Tests
-        run: |
-          mvn test
-
-
-  # ==========================================
-  # 4. SECURITY SCAN
-  # ==========================================
-    security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
       - name: Trivy Security Scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          format: table
 
 
-  # ==========================================
-  # 5. PACKAGE
-  # ==========================================
+  # =========================================================
+  # 4. PACKAGE
+  # =========================================================
   package:
     name: Package Application
     runs-on: ubuntu-latest
@@ -143,10 +116,9 @@ jobs:
           cache: maven
 
       - name: Create WAR
-        run: |
-          mvn clean package -DskipTests
+        run: mvn --batch-mode package -DskipTests
 
-      - name: List WAR File
+      - name: Show WAR
         run: |
           ls -lah target/
 
@@ -157,11 +129,11 @@ jobs:
           path: target/*.war
 
 
-  # ==========================================
-  # 6. DOCKER BUILD & PUSH
-  # ==========================================
+  # =========================================================
+  # 5. DOCKER BUILD + PUSH
+  # =========================================================
   docker:
-    name: Build Docker Image
+    name: Docker Build and Push
     runs-on: ubuntu-latest
     needs: package
 
@@ -182,11 +154,9 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          docker build -t $IMAGE_NAME:${{ github.sha }} .
-
-      - name: Tag Latest
-        run: |
-          docker tag $IMAGE_NAME:${{ github.sha }} $IMAGE_NAME:latest
+          docker build \
+            -t $IMAGE_NAME:${{ github.sha }} \
+            -t $IMAGE_NAME:latest .
 
       - name: Push Docker Image
         run: |
@@ -194,16 +164,13 @@ jobs:
           docker push $IMAGE_NAME:latest
 
 
-  # ==========================================
-  # 7. DEPLOY
-  # ==========================================
+  # =========================================================
+  # 6. DEPLOYMENT
+  # =========================================================
   deploy:
     name: Deploy Application
     runs-on: ubuntu-latest
     needs: docker
-
-    environment:
-      name: production
 
     steps:
       - name: Deployment Started
@@ -220,9 +187,9 @@ jobs:
           echo "Application deployment completed."
 
 
-  # ==========================================
-  # 8. HEALTH CHECK
-  # ==========================================
+  # =========================================================
+  # 7. HEALTH CHECK
+  # =========================================================
   health-check:
     name: Application Health Check
     runs-on: ubuntu-latest
@@ -237,5 +204,5 @@ jobs:
       - name: Pipeline Completed
         run: |
           echo "======================================"
-          echo "     CI/CD PIPELINE SUCCESSFUL"
+          echo "       CI/CD PIPELINE SUCCESSFUL"
           echo "======================================"
