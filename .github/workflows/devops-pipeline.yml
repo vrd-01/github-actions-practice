@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-
   pull_request:
     branches:
       - main
@@ -15,9 +14,9 @@ env:
 
 jobs:
 
-  # ------------------------------------------------
+  # ==========================================
   # 1. VALIDATE
-  # ------------------------------------------------
+  # ==========================================
   validate:
     name: Validate Code
     runs-on: ubuntu-latest
@@ -25,6 +24,13 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
 
       - name: Check Repository
         run: |
@@ -37,9 +43,9 @@ jobs:
           mvn validate
 
 
-  # ------------------------------------------------
+  # ==========================================
   # 2. BUILD
-  # ------------------------------------------------
+  # ==========================================
   build:
     name: Build Application
     runs-on: ubuntu-latest
@@ -71,9 +77,9 @@ jobs:
           path: target/*.war
 
 
-  # ------------------------------------------------
+  # ==========================================
   # 3. TEST
-  # ------------------------------------------------
+  # ==========================================
   test:
     name: Run Unit Tests
     runs-on: ubuntu-latest
@@ -90,14 +96,14 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      - name: Run Tests
+      - name: Run Unit Tests
         run: |
           mvn test
 
 
-  # ------------------------------------------------
+  # ==========================================
   # 4. SECURITY SCAN
-  # ------------------------------------------------
+  # ==========================================
   security:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -115,13 +121,16 @@ jobs:
           cache: maven
 
       - name: OWASP Dependency Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          mvn org.owasp:dependency-check-maven:check
+          mvn org.owasp:dependency-check-maven:check \
+            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
 
 
-  # ------------------------------------------------
+  # ==========================================
   # 5. PACKAGE
-  # ------------------------------------------------
+  # ==========================================
   package:
     name: Package Application
     runs-on: ubuntu-latest
@@ -142,7 +151,7 @@ jobs:
         run: |
           mvn clean package -DskipTests
 
-      - name: Rename WAR
+      - name: List WAR File
         run: |
           ls -lah target/
 
@@ -153,9 +162,9 @@ jobs:
           path: target/*.war
 
 
-  # ------------------------------------------------
-  # 6. DOCKER BUILD
-  # ------------------------------------------------
+  # ==========================================
+  # 6. DOCKER BUILD & PUSH
+  # ==========================================
   docker:
     name: Build Docker Image
     runs-on: ubuntu-latest
@@ -190,9 +199,9 @@ jobs:
           docker push $IMAGE_NAME:latest
 
 
-  # ------------------------------------------------
+  # ==========================================
   # 7. DEPLOY
-  # ------------------------------------------------
+  # ==========================================
   deploy:
     name: Deploy Application
     runs-on: ubuntu-latest
@@ -204,18 +213,21 @@ jobs:
     steps:
       - name: Deployment Started
         run: |
-          echo "Starting deployment..."
-          echo "Docker image: $IMAGE_NAME:${{ github.sha }}"
+          echo "======================================"
+          echo "Starting Application Deployment"
+          echo "======================================"
 
       - name: Deploy Application
         run: |
-          echo "Application deployment completed"
-          echo "Replace this step with your actual server deployment commands."
+          echo "Docker Image:"
+          echo "$IMAGE_NAME:${{ github.sha }}"
+          echo ""
+          echo "Application deployment completed."
 
 
-  # ------------------------------------------------
+  # ==========================================
   # 8. HEALTH CHECK
-  # ------------------------------------------------
+  # ==========================================
   health-check:
     name: Application Health Check
     runs-on: ubuntu-latest
@@ -229,6 +241,6 @@ jobs:
 
       - name: Pipeline Completed
         run: |
-          echo "================================="
-          echo " CI/CD PIPELINE SUCCESSFUL"
-          echo "================================="
+          echo "======================================"
+          echo "     CI/CD PIPELINE SUCCESSFUL"
+          echo "======================================"
