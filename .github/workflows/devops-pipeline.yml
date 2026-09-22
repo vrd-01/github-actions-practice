@@ -104,7 +104,7 @@ jobs:
   # ==========================================
   # 4. SECURITY SCAN
   # ==========================================
-  security:
+    security:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: test
@@ -113,19 +113,14 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - name: Trivy Security Scan
+        uses: aquasecurity/trivy-action@master
         with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: maven
-
-      - name: OWASP Dependency Check
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          mvn org.owasp:dependency-check-maven:check \
-            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
 
   # ==========================================
