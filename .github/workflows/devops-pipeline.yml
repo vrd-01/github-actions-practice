@@ -1,4 +1,4 @@
-name: DevOps CI/CD Pipeline
+name: Java CI/CD Pipeline
 
 on:
   push:
@@ -13,16 +13,14 @@ on:
 
 env:
   JAVA_VERSION: '17'
-  APP_NAME: application
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
 
-  # =====================================================
+  # =========================
   # 1. VALIDATE
-  # =====================================================
+  # =========================
   validate:
-    name: Validate Code
+    name: Validate
     runs-on: ubuntu-latest
 
     steps:
@@ -40,64 +38,62 @@ jobs:
         run: mvn --batch-mode validate
 
 
-  # =====================================================
-  # 2. BUILD + TEST
-  # =====================================================
- build:
-  name: Build and Test
-  runs-on: ubuntu-latest
-  needs: validate
+  # =========================
+  # 2. BUILD & TEST
+  # =========================
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: validate
 
-  steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: ${{ env.JAVA_VERSION }}
-        cache: maven
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
 
-    - name: Build and Test
-      run: |
-        mvn --batch-mode clean package
+      - name: Build and Test
+        run: |
+          mvn --batch-mode clean package
 
-    - name: Verify JAR
-      run: |
-        echo "===== GENERATED FILES ====="
-        find target -maxdepth 2 -type f -print
-        echo ""
-        echo "===== JAR FILE ====="
-        ls -lh target/*.jar
+      - name: Show Build Files
+        run: |
+          echo "===== BUILD OUTPUT ====="
+          find target -maxdepth 2 -type f -print
 
-    - name: Prepare Application JAR
-      run: |
-        JAR_FILE=$(find target -maxdepth 1 -type f -name "*.jar" | head -n 1)
+      - name: Verify JAR
+        run: |
+          JAR_FILE=$(find target -maxdepth 1 -type f -name "*.jar" | head -n 1)
 
-        if [ -z "$JAR_FILE" ]; then
-          echo "ERROR: No JAR file was generated."
-          exit 1
-        fi
+          if [ -z "$JAR_FILE" ]; then
+            echo "ERROR: No JAR file was generated."
+            exit 1
+          fi
 
-        echo "Found JAR:"
-        echo "$JAR_FILE"
+          echo "JAR found:"
+          ls -lh "$JAR_FILE"
 
-        cp "$JAR_FILE" target/application.jar
+          cp "$JAR_FILE" target/application.jar
 
-        echo "Prepared application:"
-        ls -lh target/application.jar
+          echo "Application JAR:"
+          ls -lh target/application.jar
 
-    - name: Upload Application JAR
-      uses: actions/upload-artifact@v4
-      with:
-        name: application-jar
-        path: target/application.jar
-        retention-days: 1
+      - name: Upload Application JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-jar
+          path: target/application.jar
+          retention-days: 1
 
-  # =====================================================
+
+  # =========================
   # 3. SECURITY SCAN
-  # =====================================================
+  # =========================
   security:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -119,11 +115,11 @@ jobs:
           format: table
 
 
-  # =====================================================
-  # 4. DOCKER BUILD + PUSH
-  # =====================================================
+  # =========================
+  # 4. DOCKER BUILD
+  # =========================
   docker:
-    name: Docker Build and Push
+    name: Docker Build
     runs-on: ubuntu-latest
     needs:
       - build
@@ -137,25 +133,34 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Download Application WAR
+      - name: Download Application JAR
         uses: actions/download-artifact@v4
         with:
-          name: application-war
+          name: application-jar
           path: target
 
-      - name: Verify Application Files
+      - name: Verify Application JAR
         run: |
-          echo "===== APPLICATION ====="
-          ls -lh target/application.war
+          echo "===== APPLICATION JAR ====="
+          ls -lh target/application.jar
 
-          echo ""
-          echo "===== DOCKERFILE ====="
-          if [ ! -f Dockerfile ]; then
-            echo "ERROR: Dockerfile is missing."
-            exit 1
-          fi
+      - name: Create Dockerfile
+        run: |
+          cat > Dockerfile <<'EOF'
+          FROM eclipse-temurin:17-jre
 
-          ls -lh Dockerfile
+          WORKDIR /app
+
+          COPY target/application.jar /app/application.jar
+
+          EXPOSE 8080
+
+          ENTRYPOINT ["java", "-jar", "/app/application.jar"]
+          EOF
+
+      - name: Show Dockerfile
+        run: |
+          cat Dockerfile
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -164,52 +169,63 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set Image Name
+        run: |
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> "$GITHUB_ENV"
+
       - name: Build Docker Image
         run: |
           docker build \
-            --tag $IMAGE_NAME:${{ github.sha }} \
-            --tag $IMAGE_NAME:latest .
+            -t "$IMAGE_NAME:${GITHUB_SHA}" \
+            -t "$IMAGE_NAME:latest" .
 
       - name: Push Docker Image
         run: |
-          docker push $IMAGE_NAME:${{ github.sha }}
-          docker push $IMAGE_NAME:latest
+          docker push "$IMAGE_NAME:${GITHUB_SHA}"
+          docker push "$IMAGE_NAME:latest"
 
 
-  # =====================================================
-  # 5. DEPLOY
-  # =====================================================
+  # =========================
+  # 5. DEPLOYMENT POC
+  # =========================
   deploy:
-    name: Deploy Application
+    name: Deployment
     runs-on: ubuntu-latest
     needs: docker
 
     steps:
-      - name: Deploy Application
+      - name: Deployment
         run: |
-          echo "========================================"
-          echo "Application Deployment"
-          echo "========================================"
-          echo "Image: $IMAGE_NAME:${{ github.sha }}"
-          echo "Deployment completed successfully."
+          echo "======================================"
+          echo "        DEPLOYMENT STAGE"
+          echo "======================================"
+          echo "Docker image successfully built and pushed."
+          echo "Image: ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+          echo ""
+          echo "Deployment POC completed."
 
 
-  # =====================================================
-  # 6. HEALTH CHECK
-  # =====================================================
+  # =========================
+  # 6. HEALTH CHECK POC
+  # =========================
   health-check:
-    name: Application Health Check
+    name: Health Check
     runs-on: ubuntu-latest
     needs: deploy
 
     steps:
       - name: Health Check
         run: |
-          echo "Checking application health..."
-          echo "Application is healthy."
+          echo "======================================"
+          echo "          HEALTH CHECK"
+          echo "======================================"
+          echo "Pipeline deployment stage completed."
+          echo "Health check POC: SUCCESS"
 
-      - name: Pipeline Completed
+      - name: Pipeline Success
         run: |
-          echo "========================================"
+          echo ""
+          echo "======================================"
           echo "       CI/CD PIPELINE SUCCESSFUL"
-          echo "========================================"
+          echo "======================================"
