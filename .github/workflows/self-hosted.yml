@@ -1,0 +1,30 @@
+name: Self Hosted Runner Practice
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-runner:
+    runs-on: self-hosted
+
+    steps:
+      - name: Display Hostname
+        run: hostname
+
+      - name: Display User
+        run: whoami
+
+      - name: Check Operating System
+        run: uname -a
+
+      - name: Check Disk Space
+        run: df -h
+
+      - name: Check Memory
+        run: free -h
+
+      - name: Display Current Directory
+        run: pwd
