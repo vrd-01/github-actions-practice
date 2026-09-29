@@ -1,0 +1,194 @@
+
+name: Complete DevSecOps Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+
+  # JOB 1: CHECKOUT
+  checkout:
+    name: Checkout Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Repository
+        uses: actions/checkout@v4
+
+      - name: Display Information
+        run: |
+          echo "================================"
+          echo "WELCOME TO DEVSECOPS PIPELINE"
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "================================"
+
+  # JOB 2: GITLEAKS
+  gitleaks:
+    name: Gitleaks Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan Secrets
+        uses: gitleaks/gitleaks-action@v2
+
+  # JOB 3: CODEQL
+  codeql:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Source Code
+        id: source
+        run: |
+          if find . -type f \( -name "*.js" -o -name "*.ts" -o -name "*.py" -o -name "*.java" \) | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Initialize CodeQL
+        if: steps.source.outputs.found == 'true'
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Analyze Code
+        if: steps.source.outputs.found == 'true'
+        uses: github/codeql-action/analyze@v3
+
+      - name: Display Status
+        if: steps.source.outputs.found == 'false'
+        run: echo "No supported source files found. CodeQL analysis skipped."
+
+  # JOB 4: TRIVY SECURITY SCAN
+  trivy:
+    name: Trivy Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan Repository
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          format: table
+          exit-code: '0'
+
+  # JOB 5: DEPENDENCY SCAN
+  dependency:
+    name: Dependency Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Dependencies
+        run: |
+          echo "================================"
+          echo "DEPENDENCY SCANNING"
+          echo "================================"
+
+          if [ -f pom.xml ]; then
+            echo "Maven project detected"
+            echo "Checking Maven dependencies"
+            mvn dependency:tree
+          elif [ -f package-lock.json ]; then
+            echo "Node.js dependencies detected"
+            npm audit || true
+          else
+            echo "No Maven or npm lockfile found."
+            echo "Trivy filesystem scan covers supported dependency files."
+          fi
+
+  # JOB 6: SBOM GENERATION
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Software Bill of Materials
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom.json
+          scanners: vuln
+
+      - name: Upload SBOM Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Software-Bill-of-Materials
+          path: sbom.json
+
+  # JOB 7: DOCKER
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Dockerfile
+        id: dockerfile
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Docker Image
+        if: steps.dockerfile.outputs.found == 'true'
+        run: |
+          docker build -t devsecops-demo:latest .
+          echo "Docker image built successfully"
+
+      - name: Skip if Dockerfile Missing
+        if: steps.dockerfile.outputs.found == 'false'
+        run: echo "Dockerfile not found. Docker build skipped."
+
+  # JOB 8: FINAL SUMMARY
+  summary:
+    name: Final Pipeline Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - checkout
+      - gitleaks
+      - codeql
+      - trivy
+      - dependency
+      - sbom
+      - docker
+
+    steps:
+      - name: Display Final Output
+        run: |
+          echo "======================================"
+          echo "       DEVSECOPS PIPELINE REPORT"
+          echo "======================================"
+          echo "Checkout: ${{ needs.checkout.result }}"
+          echo "Gitleaks: ${{ needs.gitleaks.result }}"
+          echo "CodeQL: ${{ needs.codeql.result }}"
+          echo "Trivy: ${{ needs.trivy.result }}"
+          echo "Dependency: ${{ needs.dependency.result }}"
+          echo "SBOM: ${{ needs.sbom.result }}"
+          echo "Docker: ${{ needs.docker.result }}"
+          echo "======================================"
+          echo "PIPELINE EXECUTION FINISHED"
+          echo "======================================"
