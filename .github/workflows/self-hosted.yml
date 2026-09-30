@@ -1,5 +1,7 @@
 name: Self Hosted Runner Practice
 
+permissions: {}
+
 on:
   workflow_dispatch:
   push:
