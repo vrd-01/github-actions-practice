@@ -11,6 +11,10 @@ on:
 
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: read
+
 env:
   JAVA_VERSION: '17'
 
